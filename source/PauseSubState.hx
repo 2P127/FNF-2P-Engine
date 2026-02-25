@@ -321,6 +321,8 @@ class PauseSubState extends MusicBeatSubstate
 		// on restart instead of using stale cached data.
 		try { util.ScriptCache.clear(); } catch (_:Dynamic) {}
 		try { util.LuaPool.clear(); } catch (_:Dynamic) {}
+		// Clear directory/existence caches so newly added script files are discovered.
+		try { Paths.invalidateModsCaches(); } catch (_:Dynamic) {}
 
 		if(noTrans)
 		{
