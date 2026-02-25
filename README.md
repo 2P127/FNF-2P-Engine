@@ -18,11 +18,11 @@
 
 ### **Preload (Cache) Video**
 
-Preloads a video before playback.
+Pre-caches a video reference for later use.
 
-Recommended for **mid-song cutscenes or transitions** to reduce lag.
+It’s best to call this function **inside `onCreatePost()`**.
 
-It’s best to call this function **inside `onCreatePost()`** so the video is ready when needed.
+Note: this function does **not** start decoding/playing the video. If you want the video to be fully ready to show instantly, create it early with `makeVideo(..., true)` (paused + hidden) and then `resumeVideo()` when needed.
 
 ```lua
 precacheVideo('videoName', 'videoTag')
@@ -30,10 +30,17 @@ precacheVideo('videoName', 'videoTag')
 
 ### **Create and Play Video**
 
-Automatically plays and resizes the video to fit the screen.
+Creates a video sprite, resizes it to fit the screen, and (by default) starts playing.
+
+**Optional:** `pauseOnReady` (default `false`)
+- If `true`: the video will be created **paused** and **hidden** (alpha 0) once it becomes ready.
+- If `false`: the video will play immediately.
 
 ```lua
 makeVideo('videoName', 'videoTag', 'camHUD')
+
+-- Create early but keep hidden + paused (good for mid-song cutscenes)
+makeVideo('videoName', 'videoTag', 'camOther', true)
 ```
 
 ### **Set Video Position**
@@ -58,6 +65,8 @@ pauseVideo('videoTag')
 
 ### **Resume Paused Video**
 
+Resumes playback and makes the video visible (sets alpha to `1`).
+
 ```lua
 resumeVideo('videoTag')
 ```
@@ -74,10 +83,10 @@ stopVideo('videoTag')
 
 Gradually changes the video’s transparency.
 
-**Order:** `(tweenTag, videoTag, startAlpha, endAlpha, tweenType)`
+**Order:** `(tweenTag, videoTag, alpha, time, ease)`
 
 ```lua
-tweenAlphaVideo('TweenTag', 'videoTag', 0, 0.5, 'linear')
+tweenAlphaVideo('TweenTag', 'videoTag', 0.5, 1.0, 'linear')
 ```
 
 ### **Set Video Alpha Instantly**
