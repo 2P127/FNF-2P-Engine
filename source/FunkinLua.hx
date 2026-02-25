@@ -2265,13 +2265,13 @@ class FunkinLua {
 			#end
 		});
 
-		Lua_helper.add_callback(lua, "makeVideo", function(name:String, tag:String, camera:String) {
+		Lua_helper.add_callback(lua, "makeVideo", function(name:String, tag:String, camera:String, pauseOnReady:Bool = false) {
 			#if VIDEOS_ALLOWED
 			if(Paths.sysExists(Paths.video(name))) {
 				// Default tag to name when nil/empty passed from Lua
 				if (tag == null || tag.length == 0) tag = name;
 				var cam:FlxCamera = cameraFromString(camera);
-				PlayState.instance.makeVideo(name, tag, cam);
+				PlayState.instance.makeVideo(name, tag, cam, pauseOnReady);
 				return true;
 			} else {
 				luaTrace('makeVideo: Video file not found: ' + name, false, false, FlxColor.RED);

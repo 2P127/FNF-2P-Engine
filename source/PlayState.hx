@@ -153,6 +153,8 @@ class PlayState extends MusicBeatState
 	// Internal: keep track of handlers so stop/end can safely unhook them (prevents crashes/leaks)
 	public var videoTextureHandlers:Map<String, Dynamic> = new Map();
 	public var videoResizeHandlers:Map<String, Dynamic> = new Map();
+	// Hidden group used to keep precached video sprites alive and rendered once (for texture setup)
+	public var videoPrecacheGroup:FlxTypedGroup<FlxVideoSprite> = null;
 
 	public var BF_X:Float = 770;
 	public var BF_Y:Float = 100;
@@ -1705,21 +1707,41 @@ class PlayState extends MusicBeatState
 			}
 	
 			var video:FlxVideo = new FlxVideo();
+			var ended:Bool = false;
+			var endOnce = function() {
+				if (ended) return;
+				ended = true;
+				new FlxTimer().start(0, function(_) {
+					try {
+						video.dispose();
+					} catch(e:Dynamic) {}
+					startAndEnd();
+				});
+			};
 				#if (hxCodec >= "3.0.0")
 				// Recent versions
-				video.play(filepath);
-				video.onEndReached.add(function()
-				{
-					video.dispose();
-					startAndEnd();
+				try {
+					video.play(filepath);
+				} catch(e:Dynamic) {
+					endOnce();
+					return;
+				}
+				video.onEndReached.add(function() {
+					endOnce();
 					return;
 				}, true);
 				#else
 				// Older versions
-				video.playVideo(filepath);
-				video.finishCallback = function()
-				{
+				try {
+					video.playVideo(filepath);
+				} catch(e:Dynamic) {
 					startAndEnd();
+					return;
+				}
+				video.finishCallback = function() {
+					new FlxTimer().start(0, function(_) {
+						startAndEnd();
+					});
 					return;
 				}
 				#end
@@ -1746,6 +1768,13 @@ class PlayState extends MusicBeatState
 		public function makeCutSenceVideo(name:String)
 			{
 				inCutscene = true;
+				// Stop any previous cutscene sprite safely
+				if (cutSenceSprite != null) {
+					try { cutSenceSprite.stop(); } catch(e:Dynamic) {}
+					remove(cutSenceSprite, true);
+					try { cutSenceSprite.destroy(); } catch(e:Dynamic) {}
+					cutSenceSprite = null;
+				}
 
 				var filepath:String = Paths.video(name);
 				#if sys
@@ -1760,22 +1789,34 @@ class PlayState extends MusicBeatState
 				}
 	
 				cutSenceSprite = new FlxVideoSprite();
-				cutSenceSprite.play(filepath, false);
+				var ended:Bool = false;
+				try {
+					cutSenceSprite.play(filepath, false);
+				} catch(e:Dynamic) {
+					// If the decoder fails (can happen under capture/overlay), don't softlock the game.
+					cutSenceSprite.destroy();
+					cutSenceSprite = null;
+					startAndEnd();
+					return;
+				}
 				cutSenceSprite.antialiasing = true;
 				cutSenceSprite.cameras = [camOther];
 				add(cutSenceSprite);
 	
 				cutSenceSprite.onEndReached = function()
 					{
-						if (cutSenceSprite != null)
-						{
-								cutSenceSprite.stop();
-								remove(cutSenceSprite);
-								cutSenceSprite.destroy();
+						if (ended) return;
+						ended = true;
+						new FlxTimer().start(0, function(_) {
+							if (cutSenceSprite != null) {
+								try { cutSenceSprite.stop(); } catch(e:Dynamic) {}
+								remove(cutSenceSprite, true);
+								try { cutSenceSprite.destroy(); } catch(e:Dynamic) {}
 								cutSenceSprite = null;
+							}
 							startAndEnd();
-							return;
-						}
+						});
+						return;
 					};
 			}
 
@@ -1792,6 +1833,12 @@ class PlayState extends MusicBeatState
 		if (tag == null || tag.length == 0) tag = name;
 		// Already preloaded
 		if (videoSprites.exists(tag)) return;
+		// Ensure a group exists so precached sprites can be rendered at least once (texture setup)
+		if (videoPrecacheGroup == null) {
+			videoPrecacheGroup = new FlxTypedGroup<FlxVideoSprite>();
+			if (camOther != null) videoPrecacheGroup.cameras = [camOther];
+			add(videoPrecacheGroup);
+		}
 		var filepath:String = Paths.video(name);
 		#if sys
 		if (!FileSystem.exists(filepath)) return;
@@ -1801,24 +1848,25 @@ class PlayState extends MusicBeatState
 
 		// Create hidden sprite and start decoding immediately
 		var vs = new FlxVideoSprite();
-		vs.alpha = 0;
+		// Keep it effectively invisible but still renderable (alpha==0 can be culled and skip texture setup)
+		vs.alpha = 0.00001;
 		vs.antialiasing = true;
 		// Assign a camera if available (optional)
 		if (camOther != null) {
 			vs.cameras = [camOther];
 			vs.scrollFactor.set(0, 0);
 		}
+		videoPrecacheGroup.add(vs);
 
-		// Pause on first texture setup (ensures a decoded frame + GL texture exist)
-		var pausedOnce:Bool = false;
+		// Precache-only: warm up decoder/texture once, then stop (no pause/alpha policy here)
+		var stoppedOnce:Bool = false;
 		var handlerAdded:Bool = false;
 		var handler:Void->Void = null;
 		handler = function() {
-			if (!pausedOnce) {
-				pausedOnce = true;
-				vs.pause();
-				if (vs.bitmap != null) vs.bitmap.onTextureSetup.remove(handler);
-			}
+			if (stoppedOnce) return;
+			stoppedOnce = true;
+			try { vs.stop(); } catch(e:Dynamic) {}
+			if (vs.bitmap != null) vs.bitmap.onTextureSetup.remove(handler);
 		};
 		// Try to attach immediately if bitmap is available; otherwise poll briefly
 		if (vs.bitmap != null) {
@@ -1836,14 +1884,32 @@ class PlayState extends MusicBeatState
 
 		// Start playback next tick so hxCodec starts decoding on its own thread
 		new FlxTimer().start(0, function(_) {
-			if (vs != null) vs.play(filepath, false);
+			if (vs != null) {
+				vs.play(filepath, false);
+				// In some hxCodec versions bitmap becomes available only after play(); ensure handler is attached.
+				if (vs.bitmap != null && !handlerAdded) {
+					vs.bitmap.onTextureSetup.add(handler);
+					handlerAdded = true;
+				}
+				// Safety: if texture setup is missed for any reason, don't let the video keep playing offscreen.
+				new FlxTimer().start(1.0, function(_) {
+					if (vs == null) return;
+					if (!stoppedOnce) {
+						stoppedOnce = true;
+						try { vs.stop(); } catch(e:Dynamic) {}
+						if (vs.bitmap != null) {
+							try { vs.bitmap.onTextureSetup.remove(handler); } catch(e:Dynamic) {}
+						}
+					}
+				});
+			}
 		});
 
 		videoSprites.set(tag, vs);
 		#end
 	}
 
-		public function makeVideo(name:String, tag:String, cam:Dynamic) // cam can be FlxCamera or string ('camGame'|'camHUD'|'camOther')
+		public function makeVideo(name:String, tag:String, cam:Dynamic, ?pauseOnReady:Bool = false) // cam can be FlxCamera or string ('camGame'|'camHUD'|'camOther')
 		{
 			#if VIDEOS_ALLOWED
 			// Allow optional/empty tag: default to name
@@ -1887,11 +1953,16 @@ class PlayState extends MusicBeatState
 			}
 			var preloaded:Bool = (preloadedSprite != null);
 			var videoSprite:FlxVideoSprite = preloaded ? preloadedSprite : new FlxVideoSprite();
-			videoSprite.alpha = 0;
+			var wantsPauseOnReady:Bool = (pauseOnReady == true);
+			// If we want to start hidden, keep it renderable (alpha==0 may be culled and skip readiness on some setups)
+			videoSprite.alpha = wantsPauseOnReady ? 0.00001 : 1;
 			videoSprite.antialiasing = true;
 			videoSprite.cameras = [targetCam];
 			if (targetCam != FlxG.camera) videoSprite.scrollFactor.set(0, 0);
-			add(videoSprite);
+			// If it was precached, it may still live inside the precache group. Remove it there to avoid double-updating/drawing.
+			if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
+			// Avoid adding the same instance multiple times.
+			if (this.members.indexOf(videoSprite) == -1) add(videoSprite);
 
 			// Apply desired volume if any
 			if (videoDesiredVolume.exists(tag)) {
@@ -1903,6 +1974,8 @@ class PlayState extends MusicBeatState
 			var layoutVideo = function() {
 				try {
 					if (videoSprite == null || !videoSprite.exists || cam == null) return;
+					// When minimized some backends report 0-sized stage; avoid doing layout math then.
+					if (FlxG.width <= 1 || FlxG.height <= 1) return;
 					var fw = videoSprite.frameWidth;
 					var fh = videoSprite.frameHeight;
 					var srcW:Float = fw > 1 ? fw : (videoSprite.width > 1 ? videoSprite.width : 1);
@@ -1946,17 +2019,33 @@ class PlayState extends MusicBeatState
 				}
 			};
 
+			var pendingApply:Bool = false;
+			var alphaTweenedOnce:Bool = false;
 			var textureHandler = function() {
-				layoutVideo();
-				FlxTween.tween(videoSprite, {alpha: 1}, 0.08, {ease: FlxEase.quadOut});
-				// Apply any desired state that might have been requested before readiness
-				var desired = videoDesiredState.exists(tag) ? videoDesiredState.get(tag) : null;
-				if (desired != null) {
+				// hxCodec can fire onTextureSetup multiple times (context loss/recapture). Keep handler, but make it idempotent.
+				if (pendingApply) return;
+				pendingApply = true;
+				new FlxTimer().start(0, function(_) {
+					pendingApply = false;
+					if (videoSprite == null || !videoSprite.exists) return;
+					layoutVideo();
+					// Apply any desired state that might have been requested before readiness
+					var hadDesired:Bool = videoDesiredState.exists(tag);
+					var desired = hadDesired ? videoDesiredState.get(tag) : null;
+					if (desired == null && wantsPauseOnReady) desired = 'paused';
+					// Only auto-fade in when the video isn't meant to start paused (prevents races with setAlpha/pause flows)
+					// Also: do it at most once to prevent tween spam on context recapture.
+					if (!wantsPauseOnReady && desired != 'paused' && !alphaTweenedOnce && videoSprite != null && videoSprite.alpha <= 0) {
+						alphaTweenedOnce = true;
+						FlxTween.tween(videoSprite, {alpha: 1}, 0.08, {ease: FlxEase.quadOut});
+					}
+					// Default behavior: if no desired state was set, play immediately.
 					switch (desired) {
 						case 'paused':
 							videoSprite.pause();
 						case 'stopped':
 							videoSprite.stop();
+							if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
 							remove(videoSprite, true);
 							videoSprite.destroy();
 							videoSprites.remove(tag);
@@ -1967,13 +2056,15 @@ class PlayState extends MusicBeatState
 							videoResizeHandlers.remove(tag);
 							videoTextureHandlers.remove(tag);
 							return;
-						default: // 'playing' or unknown
-							// ensure it's playing
+						default: // null, 'playing', or unknown
 							videoSprite.resume();
 					}
-					// Clear after applying
-					videoDesiredState.remove(tag);
-				}
+					// If pauseOnReady was requested, snap alpha fully to 0 only if the user hasn't overridden it already.
+					if (wantsPauseOnReady && videoSprite != null && videoSprite.alpha <= 0.00002) {
+						videoSprite.alpha = 0;
+					}
+					if (hadDesired) videoDesiredState.remove(tag);
+				});
 			};
 
 			var resizeHandler = function(w:Int, h:Int) {
@@ -1982,16 +2073,35 @@ class PlayState extends MusicBeatState
 			FlxG.signals.gameResized.add(resizeHandler);
 			videoTextureHandlers.set(tag, textureHandler);
 			videoResizeHandlers.set(tag, resizeHandler);
-
-			if (preloaded) {
-				layoutVideo();
-				FlxTween.tween(videoSprite, {alpha: 1}, 0.08, {ease: FlxEase.quadOut});
-				// Honor desired state if it was set before makeVideo
+			// Fallback: if onTextureSetup gets missed (can happen under load/capture), poll briefly for readiness.
+			var ensureReady:FlxTimer = new FlxTimer();
+			ensureReady.start(0.05, function(t:FlxTimer) {
+				if (videoSprite == null || !videoSprite.exists) {
+					t.cancel();
+					return;
+				}
+				// bitmap being non-null is the most reliable signal; frame sizes can lag behind on some systems.
+				if (videoSprite.bitmap != null) {
+					textureHandler();
+					t.cancel();
+				}
+			}, 40);
+			// Extra safety: if everything fails and alpha stays at 0, reveal after a short delay (only when no desired state is set).
+			new FlxTimer().start(0.25, function(_) {
+				if (videoSprite == null || !videoSprite.exists) return;
 				var desired = videoDesiredState.exists(tag) ? videoDesiredState.get(tag) : null;
-				switch (desired) {
-					case 'paused':
-						videoSprite.pause();
-					case 'stopped':
+				if (desired == null && videoSprite.alpha <= 0) {
+					textureHandler();
+				}
+			});
+
+			// Store immediately so Lua can pause/resume/alpha even before play() completes
+			videoSprites.set(tag, videoSprite);
+			new FlxTimer().start(0, function(_) {
+				if (videoSprite != null) {
+					// If a stop was requested before first frame, don't even start
+					var desired = videoDesiredState.exists(tag) ? videoDesiredState.get(tag) : null;
+					if (desired == 'stopped') {
 						videoSprite.stop();
 						remove(videoSprite, true);
 						videoSprite.destroy();
@@ -2002,54 +2112,58 @@ class PlayState extends MusicBeatState
 						videoResizeHandlers.remove(tag);
 						videoTextureHandlers.remove(tag);
 						return;
-					default:
-						videoSprite.resume();
-				}
-				if (desired != null) videoDesiredState.remove(tag);
-			} else {
-					// When not preloaded, wait for texture setup to fade-in and apply desired state
-					if (videoSprite != null && videoSprite.bitmap != null) {
+					}
+					// Start playback (for precached sprites this re-starts from beginning, which is what makeVideo implies)
+					videoSprite.play(filepath, false);
+					// IMPORTANT: bitmap is often null until after play(); attach the ready handler after play.
+					if (videoSprite.bitmap != null) {
+						try { videoSprite.bitmap.onTextureSetup.remove(textureHandler); } catch(e:Dynamic) {}
 						videoSprite.bitmap.onTextureSetup.add(textureHandler);
+						textureHandler();
+					} else {
+						new FlxTimer().start(0.01, function(t:FlxTimer) {
+							if (videoSprite == null) {
+								t.cancel();
+								return;
+							}
+							if (videoSprite.bitmap != null) {
+								try { videoSprite.bitmap.onTextureSetup.remove(textureHandler); } catch(e:Dynamic) {}
+								videoSprite.bitmap.onTextureSetup.add(textureHandler);
+								textureHandler();
+								t.cancel();
+							}
+						}, 50);
 					}
-				new FlxTimer().start(0, function(_) {
-					if (videoSprite != null) {
-						// If a stop was requested before first frame, don't even start
-						var desired = videoDesiredState.exists(tag) ? videoDesiredState.get(tag) : null;
-						if (desired == 'stopped') {
-							videoSprite.stop();
-							remove(videoSprite, true);
-							videoSprite.destroy();
-							videoSprites.remove(tag);
-							videoDesiredState.remove(tag);
-							videoDesiredVolume.remove(tag);
-							FlxG.signals.gameResized.remove(resizeHandler);
-							videoResizeHandlers.remove(tag);
-							videoTextureHandlers.remove(tag);
-							return;
-						}
-						videoSprite.play(filepath, false);
-					}
-				});
-				videoSprites.set(tag, videoSprite);
-			}
+				}
+			});
 		
+			var endReachedOnce:Bool = false;
 			videoSprite.onEndReached = function()
 			{
-				var th:Dynamic = videoTextureHandlers.get(tag);
-				if (videoSprite != null && videoSprite.bitmap != null && th != null) {
-					videoSprite.bitmap.onTextureSetup.remove(th);
-				}
-				var rh:Dynamic = videoResizeHandlers.get(tag);
-				if (rh != null) FlxG.signals.gameResized.remove(rh);
-				videoTextureHandlers.remove(tag);
-				videoResizeHandlers.remove(tag);
-				if (videoSprite != null) videoSprite.stop();
-				remove(videoSprite, true);
-				if (videoSprite != null) videoSprite.destroy();
-				videoSprites.remove(tag);
-				videoDesiredState.remove(tag);
-				videoDesiredVolume.remove(tag);
-				startAndEnd();
+				if (endReachedOnce) return;
+				endReachedOnce = true;
+				new FlxTimer().start(0, function(_) {
+					var th:Dynamic = videoTextureHandlers.get(tag);
+					if (videoSprite != null && videoSprite.bitmap != null && th != null) {
+						try { videoSprite.bitmap.onTextureSetup.remove(th); } catch(e:Dynamic) {}
+					}
+					var rh:Dynamic = videoResizeHandlers.get(tag);
+					if (rh != null) FlxG.signals.gameResized.remove(rh);
+					videoTextureHandlers.remove(tag);
+					videoResizeHandlers.remove(tag);
+					if (videoSprite != null) {
+						try { videoSprite.stop(); } catch(e:Dynamic) {}
+					}
+					if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
+					remove(videoSprite, true);
+					if (videoSprite != null) {
+						try { videoSprite.destroy(); } catch(e:Dynamic) {}
+					}
+					videoSprites.remove(tag);
+					videoDesiredState.remove(tag);
+					videoDesiredVolume.remove(tag);
+					startAndEnd();
+				});
 				return;
 			};
 			#else
@@ -2115,6 +2229,7 @@ class PlayState extends MusicBeatState
 				videoTextureHandlers.remove(tag);
 				videoResizeHandlers.remove(tag);
 				videoSprite.stop();
+				if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
 				remove(videoSprite, true);
 				videoSprite.destroy();
 				videoSprites.remove(tag);
@@ -3299,13 +3414,13 @@ class PlayState extends MusicBeatState
 	{
 		if (paused)
 		{
-        for (videoSprite in videoSprites)
-        {
-            if (videoSprite != null)
-            {
-                videoSprite.pause();
-            }
-        }
+			var vids:Array<FlxVideoSprite> = [];
+			for (v in videoSprites) {
+				if (v != null) vids.push(v);
+			}
+			for (v in vids) {
+				v.pause();
+			}
 
 			if (FlxG.sound.music != null)
 			{
@@ -3344,13 +3459,13 @@ class PlayState extends MusicBeatState
 	{
 		if (paused)
 		{
-			for (videoSprite in videoSprites)
-				{
-					if (videoSprite != null)
-					{
-						videoSprite.resume();
-					}
-				}
+			var vids:Array<FlxVideoSprite> = [];
+			for (v in videoSprites) {
+				if (v != null) vids.push(v);
+			}
+			for (v in vids) {
+				v.resume();
+			}
 
 			if (FlxG.sound.music != null && !startingSong)
 			{
