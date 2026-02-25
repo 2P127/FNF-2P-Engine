@@ -640,11 +640,11 @@ class TitleState extends MusicBeatState
 					FlxG.sound.playMusic(Paths.music('freakyMenu'), 0);
 					FlxG.sound.music.fadeIn(4, 0, 0.7);
 				case 2:
-					createCoolText(['Haryu Engine by'], 15);
+					createCoolText(['2P Engine by'], 15);
 				// credTextShit.visible = true;
 				case 4:
 					#if PSYCH_WATERMARKS
-					addMoreText('Haryu5412', 15);
+					addMoreText('2P :3', 15);
 					addMoreText('Original', 15);
 					addMoreText('Psych Engine by', 15);
 					addMoreText('Psych Engine Team', 15);

@@ -26,7 +26,7 @@ using StringTools;
 class MainMenuState extends MusicBeatState
 {
 	public static var psychEngineVersion:String = '0.6.3'; 
-	public static var harVersion:String = '0.7.2';
+	public static var twoPVersion:String = '0.7.3';
 	public static var curSelected:Int = 0;
 
 	var menuItems:FlxTypedGroup<FlxSprite>;
@@ -124,7 +124,7 @@ class MainMenuState extends MusicBeatState
 			menuItem.updateHitbox();
 		}
 
-		var versionShit:FlxText = new FlxText(12, FlxG.height - 64, 0, "Haryu5412 Engine", 12);
+		var versionShit:FlxText = new FlxText(12, FlxG.height - 64, 0, "2P Engine v" + twoPVersion, 12);
 		versionShit.scrollFactor.set();
 		versionShit.setFormat("VCR OSD Mono", 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		add(versionShit);
