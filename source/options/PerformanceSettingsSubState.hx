@@ -36,14 +36,6 @@ class PerformanceSettingsSubState extends BaseOptionsMenu {
 		};
 		addOption(optGPU);
 
-		// Aggressive memory cleanup
-		var optMem:Option = new Option('Aggressive Memory Cleanup',
-			'Frees more caches between screens. Reduces memory, may add small delays on transitions.',
-			'aggressiveMemory',
-			'bool',
-			false);
-		addOption(optMem);
-
 		// Text cache size
 		var optTextCache:Option = new Option('Text Cache Size (KB)',
 			'Caches Lua/JSON text to reduce disk reads. Set to 0 to disable.',

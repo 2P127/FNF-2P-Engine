@@ -36,8 +36,6 @@ class ClientPrefs
 	// Performance preferences
 	// 0 means Auto (we'll pick a sensible default based on platform/CPU)
 	public static var workerThreads:Int = 0;
-	// If true, clears more caches when switching states to reduce memory footprint
-	public static var aggressiveMemory:Bool = true;
 	// Size of the text cache (KB) used for JSON/Lua/mod text files. 0 disables.
 	public static var textCacheKB:Int = 1024;
 	// Cache directory listings for mods/* to speed up script discovery
@@ -150,7 +148,6 @@ class ClientPrefs
 		FlxG.save.data.useFlxAnimate = useFlxAnimate;
 		FlxG.save.data.vsync = vsync;
 		FlxG.save.data.workerThreads = workerThreads;
-		FlxG.save.data.aggressiveMemory = aggressiveMemory;
 		FlxG.save.data.textCacheKB = textCacheKB;
 		FlxG.save.data.modsDirCache = modsDirCache;
 		FlxG.save.data.gpuPrecache = gpuPrecache;
@@ -277,10 +274,6 @@ class ClientPrefs
         {
             vsync = FlxG.save.data.vsync;
         }
-		if (FlxG.save.data.aggressiveMemory != null)
-		{
-			aggressiveMemory = FlxG.save.data.aggressiveMemory;
-		}
 		if (FlxG.save.data.textCacheKB != null)
 		{
 			textCacheKB = FlxG.save.data.textCacheKB;

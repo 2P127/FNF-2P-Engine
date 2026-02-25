@@ -49,11 +49,6 @@ class LoadingState extends MusicBeatState
 	var loadBar:FlxSprite;
 	override function create()
 	{
-		// Optional aggressive cleanup to lower memory before loading heavy assets
-		if (ClientPrefs.aggressiveMemory) {
-			try { Paths.clearStoredMemory(); } catch (_:Dynamic) {}
-		}
-
 		var bg:FlxSprite = new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, 0xffcaff4d);
 		add(bg);
 		funkay = new FlxSprite(0, 0).loadGraphic(Paths.getPath('images/funkay.png', IMAGE));

@@ -2,7 +2,7 @@
 <project>
 	<!-- _________________________ Application Settings _________________________ -->
 
-	<app title="Friday Night Funkin': Haryu5412 Engine" file="HaryuEngine" packageName="com.Haryu5412.haryuengine" package="com.Haryu5412.haryuengine" main="Main" version="0.5.3" company="Haryu5412" />
+	<app title="Friday Night Funkin': 2P Engine" file="HaryuEngine" packageName="com.TwoP.2PEngine" package="com.TwoP.2PEngine" main="Main" version="0.5.3" company="2P" />
 
 	<!--Switch Export with Unique ApplicationID and Icon-->
 	<set name="APP_ID" value="0x0100f6c013bbc000" />
@@ -45,8 +45,6 @@
 	<set name="BUILD_DIR" value="export/32bit" if="32bits" />
 
 	<classpath name="source" />
-	<!-- Local overrides for hxCodec classes to fix video end/dispose race issues -->
-	<classpath name="EditedHaxelibs" />
 	
 	<!-- PSYCH ENGINE CUSTOMIZATION -->
 	<define name="MODS_ALLOWED" if="desktop" />

@@ -5705,10 +5705,6 @@ class PlayState extends MusicBeatState
 
 	override function destroy() {
 		Paths.clearStoredMemory();
-		if (ClientPrefs.aggressiveMemory) {
-			Paths.clearUnusedMemory();
-			Song.clearParsedCache();
-		}
 		
 		for (lua in luaArray) {
 			lua.call('onDestroy', []);
