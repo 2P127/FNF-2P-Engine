@@ -644,7 +644,7 @@ class TitleState extends MusicBeatState
 				// credTextShit.visible = true;
 				case 4:
 					#if PSYCH_WATERMARKS
-					addMoreText('2P :3', 15);
+					addMoreText('2P127', 15);
 					addMoreText('Original', 15);
 					addMoreText('Psych Engine by', 15);
 					addMoreText('Psych Engine Team', 15);
