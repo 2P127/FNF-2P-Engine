@@ -1,10 +1,10 @@
-# **FNF Haryu5412's Modding Engine**
+# **FNF 2P's Modding Engine**
 
 **(Based on Psych Engine 0.6.3)**
 
 ---
 
-## **Haryu Engine Lua++**
+## **2P Engine Lua++**
 
 ### **Video Sprite Lua Functions**
 
