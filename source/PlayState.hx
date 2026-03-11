@@ -2000,17 +2000,7 @@ class PlayState extends MusicBeatState
 						case 'paused':
 							try { videoSprite.pause(); } catch(e:Dynamic) {}
 						case 'stopped':
-							try { videoSprite.stop(); } catch(e:Dynamic) {}
-							if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
-							remove(videoSprite, true);
-							videoSprite.destroy();
-							videoSprites.remove(tag);
-							videoDesiredState.remove(tag);
-							videoDesiredVolume.remove(tag);
-							var rh:Dynamic = videoResizeHandlers.get(tag);
-							if (rh != null) FlxG.signals.gameResized.remove(rh);
-							videoResizeHandlers.remove(tag);
-							videoTextureHandlers.remove(tag);
+							cleanupManagedVideo(tag, videoSprite);
 							return;
 						case 'playing':
 							try { videoSprite.resume(); } catch(e:Dynamic) {}
@@ -2037,15 +2027,23 @@ class PlayState extends MusicBeatState
 			videoTextureHandlers.set(tag, textureHandler);
 			videoResizeHandlers.set(tag, resizeHandler);
 			// Fallback: if onTextureSetup gets missed (can happen under load/capture), poll briefly for readiness.
+			var readyPolls:Int = 0;
 			var ensureReady:FlxTimer = new FlxTimer();
 			ensureReady.start(0.05, function(t:FlxTimer) {
 				if (videoSprite == null || !videoSprite.exists) {
 					t.cancel();
 					return;
 				}
+				readyPolls++;
 				// bitmap being non-null is the most reliable signal; frame sizes can lag behind on some systems.
 				if (videoSprite.bitmap != null) {
 					textureHandler();
+					t.cancel();
+					return;
+				}
+				if (readyPolls >= 40) {
+					FlxG.log.warn('Video failed to become ready: ' + tag);
+					cleanupManagedVideo(tag, videoSprite);
 					t.cancel();
 				}
 			}, 40);
@@ -2065,15 +2063,7 @@ class PlayState extends MusicBeatState
 					// If a stop was requested before first frame, don't even start
 					var desired = videoDesiredState.exists(tag) ? videoDesiredState.get(tag) : null;
 					if (desired == 'stopped') {
-						videoSprite.stop();
-						remove(videoSprite, true);
-						videoSprite.destroy();
-						videoSprites.remove(tag);
-						videoDesiredState.remove(tag);
-						videoDesiredVolume.remove(tag);
-						FlxG.signals.gameResized.remove(resizeHandler);
-						videoResizeHandlers.remove(tag);
-						videoTextureHandlers.remove(tag);
+						cleanupManagedVideo(tag, videoSprite);
 						return;
 					}
 					// Start playback (for precached sprites this re-starts from beginning, which is what makeVideo implies)
@@ -2081,16 +2071,7 @@ class PlayState extends MusicBeatState
 						videoSprite.play(filepath, false);
 					} catch(e:Dynamic) {
 						// Don't hard-crash the game if video init fails.
-						try { videoSprite.stop(); } catch(e2:Dynamic) {}
-						if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
-						remove(videoSprite, true);
-						try { videoSprite.destroy(); } catch(e3:Dynamic) {}
-						videoSprites.remove(tag);
-						videoDesiredState.remove(tag);
-						videoDesiredVolume.remove(tag);
-						FlxG.signals.gameResized.remove(resizeHandler);
-						videoResizeHandlers.remove(tag);
-						videoTextureHandlers.remove(tag);
+						cleanupManagedVideo(tag, videoSprite);
 						return;
 					}
 					// IMPORTANT: bitmap is often null until after play(); attach the ready handler after play.
@@ -2121,25 +2102,7 @@ class PlayState extends MusicBeatState
 				if (endReachedOnce) return;
 				endReachedOnce = true;
 				new FlxTimer().start(0, function(_) {
-					var th:Dynamic = videoTextureHandlers.get(tag);
-					if (videoSprite != null && videoSprite.bitmap != null && th != null) {
-						try { videoSprite.bitmap.onTextureSetup.remove(th); } catch(e:Dynamic) {}
-					}
-					var rh:Dynamic = videoResizeHandlers.get(tag);
-					if (rh != null) FlxG.signals.gameResized.remove(rh);
-					videoTextureHandlers.remove(tag);
-					videoResizeHandlers.remove(tag);
-					if (videoSprite != null) {
-						try { videoSprite.stop(); } catch(e:Dynamic) {}
-					}
-					if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
-					remove(videoSprite, true);
-					if (videoSprite != null) {
-						try { videoSprite.destroy(); } catch(e:Dynamic) {}
-					}
-					videoSprites.remove(tag);
-					videoDesiredState.remove(tag);
-					videoDesiredVolume.remove(tag);
+					cleanupManagedVideo(tag, videoSprite);
 					startAndEnd();
 				});
 				return;
@@ -2200,21 +2163,7 @@ class PlayState extends MusicBeatState
 			var videoSprite = videoSprites.get(tag);
 			if(videoSprite != null)
 			{
-				var th:Dynamic = videoTextureHandlers.get(tag);
-				if (videoSprite.bitmap != null && th != null) {
-					videoSprite.bitmap.onTextureSetup.remove(th);
-				}
-				var rh:Dynamic = videoResizeHandlers.get(tag);
-				if (rh != null) FlxG.signals.gameResized.remove(rh);
-				videoTextureHandlers.remove(tag);
-				videoResizeHandlers.remove(tag);
-				videoSprite.stop();
-				if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
-				remove(videoSprite, true);
-				videoSprite.destroy();
-				videoSprites.remove(tag);
-				// Fully stopped: clear pending flags so it can be created/played again later.
-				videoDesiredState.remove(tag);
+				cleanupManagedVideo(tag, videoSprite);
 			}
 			videoDesiredVolume.remove(tag);
 		}
@@ -3402,6 +3351,39 @@ class PlayState extends MusicBeatState
 			if (videoSprite != null) {
 				try { videoSprite.pause(); } catch(e:Dynamic) {}
 			}
+		}
+	}
+
+	function cleanupManagedVideo(tag:String, ?videoSprite:FlxVideoSprite, ?removeFromMaps:Bool = true):Void
+	{
+		if (videoSprite == null) videoSprite = videoSprites.get(tag);
+
+		var th:Dynamic = videoTextureHandlers.get(tag);
+		if (videoSprite != null && videoSprite.bitmap != null && th != null) {
+			try { videoSprite.bitmap.onTextureSetup.remove(th); } catch(e:Dynamic) {}
+		}
+
+		var rh:Dynamic = videoResizeHandlers.get(tag);
+		if (rh != null) {
+			try { FlxG.signals.gameResized.remove(rh); } catch(e:Dynamic) {}
+		}
+
+		videoTextureHandlers.remove(tag);
+		videoResizeHandlers.remove(tag);
+
+		if (videoSprite != null) {
+			videoSprite.onEndReached = null;
+			try { videoSprite.stop(); } catch(e:Dynamic) {}
+			if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
+			remove(videoSprite, true);
+			try { videoSprite.destroy(); } catch(e:Dynamic) {}
+		}
+
+		if (removeFromMaps) {
+			videoSprites.remove(tag);
+			videoDesiredState.remove(tag);
+			videoDesiredVolume.remove(tag);
+			videoPausedBySubState.remove(tag);
 		}
 	}
 
@@ -5759,14 +5741,26 @@ class PlayState extends MusicBeatState
 
 		// Ensure all videos are stopped and disposed when leaving the state
 		#if VIDEOS_ALLOWED
+		if (cutSenceSprite != null) {
+			cutSenceSprite.onEndReached = null;
+			try { cutSenceSprite.stop(); } catch(e:Dynamic) {}
+			remove(cutSenceSprite, true);
+			try { cutSenceSprite.destroy(); } catch(e:Dynamic) {}
+			cutSenceSprite = null;
+		}
+		var tags:Array<String> = [];
 		for (tag in videoSprites.keys()) {
-			var v = videoSprites.get(tag);
-			if (v != null) {
-				v.stop();
-				remove(v, true);
-			}
+			tags.push(tag);
+		}
+		for (tag in tags) {
+			cleanupManagedVideo(tag);
 		}
 		videoSprites.clear();
+		videoDesiredState.clear();
+		videoDesiredVolume.clear();
+		videoPausedBySubState.clear();
+		videoTextureHandlers.clear();
+		videoResizeHandlers.clear();
 		#end
 		super.destroy();
 	}
