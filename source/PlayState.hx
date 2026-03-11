@@ -144,12 +144,13 @@ class PlayState extends MusicBeatState
 
 	// Video sprite stuff
 	public var cutSenceSprite:FlxVideoSprite;
-	public var finnVideoSprite:FlxVideoSprite;
 	public var videoSprites:Map<String, FlxVideoSprite> = new Map();
 	// Desired state for videos to handle early pause/resume/stop calls before the texture is ready
 	public var videoDesiredState:Map<String, String> = new Map(); // values: 'playing' | 'paused' | 'stopped'
 	// Desired volume per tag (0..1). Applied immediately if sprite exists, otherwise when created.
 	public var videoDesiredVolume:Map<String, Float> = new Map();
+	// Tracks videos that were force-paused by a substate so focus regain doesn't resume them.
+	public var videoPausedBySubState:Map<String, Bool> = new Map();
 	// Tracks tags that have been "precached" (non-decoding warmup)
 	public var videoPrecaches:Map<String, Bool> = new Map();
 	// Internal: keep track of handlers so stop/end can safely unhook them (prevents crashes/leaks)
@@ -3389,16 +3390,39 @@ class PlayState extends MusicBeatState
 		}
 	}
 
+	function reapplySubStateVideoPause():Void
+	{
+		var tags:Array<String> = [];
+		for (tag in videoPausedBySubState.keys()) {
+			tags.push(tag);
+		}
+
+		for (tag in tags) {
+			var videoSprite = videoSprites.get(tag);
+			if (videoSprite != null) {
+				try { videoSprite.pause(); } catch(e:Dynamic) {}
+			}
+		}
+	}
+
 	override function openSubState(SubState:FlxSubState)
 	{
 		if (paused)
 		{
-			var vids:Array<FlxVideoSprite> = [];
-			for (v in videoSprites) {
-				if (v != null) vids.push(v);
+			videoPausedBySubState.clear();
+			var videoEntries:Array<{tag:String, sprite:FlxVideoSprite}> = [];
+			for (tag in videoSprites.keys()) {
+				var v = videoSprites.get(tag);
+				if (v != null) {
+					videoEntries.push({tag: tag, sprite: v});
+				}
 			}
-			for (v in vids) {
-				v.pause();
+			for (entry in videoEntries) {
+				var desired:String = videoDesiredState.exists(entry.tag) ? videoDesiredState.get(entry.tag) : null;
+				if (desired != 'paused' && desired != 'stopped') {
+					videoPausedBySubState.set(entry.tag, true);
+				}
+				try { entry.sprite.pause(); } catch(e:Dynamic) {}
 			}
 
 			if (FlxG.sound.music != null)
@@ -3438,13 +3462,17 @@ class PlayState extends MusicBeatState
 	{
 		if (paused)
 		{
-			var vids:Array<FlxVideoSprite> = [];
-			for (v in videoSprites) {
-				if (v != null) vids.push(v);
+			var tags:Array<String> = [];
+			for (tag in videoPausedBySubState.keys()) {
+				tags.push(tag);
 			}
-			for (v in vids) {
-				v.resume();
+			for (tag in tags) {
+				var videoSprite = videoSprites.get(tag);
+				if (videoSprite != null) {
+					try { videoSprite.resume(); } catch(e:Dynamic) {}
+				}
 			}
+			videoPausedBySubState.clear();
 
 			if (FlxG.sound.music != null && !startingSong)
 			{
@@ -3493,6 +3521,11 @@ class PlayState extends MusicBeatState
 
 	override public function onFocus():Void
 	{
+		if (paused)
+		{
+			reapplySubStateVideoPause();
+		}
+
 		#if desktop
 		if (health > 0 && !paused)
 		{

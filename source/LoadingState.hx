@@ -24,12 +24,6 @@ using StringTools;
 class LoadingState extends MusicBeatState
 {
 	inline static var MIN_TIME = 1.0;
-
-	// Browsers will load create(), you can make your song load a custom directory there
-	// If you're compiling to desktop (or something that doesn't use NO_PRELOAD_ALL), search for getNextState instead
-	// I'd recommend doing it on both actually lol
-	
-	// TO DO: Make this easier
 	
 	var target:FlxState;
 	var stopMusic = false;
@@ -79,18 +73,118 @@ class LoadingState extends MusicBeatState
 				if(directory != null && directory.length > 0 && directory != 'shared') {
 					checkLibrary(directory);
 				}
-
-				// Prewarm a small set of core UI graphics early to reduce first-frame hitches
 				prewarmCoreGraphics();
-
-				// Prefetch song-adjacent assets (Inst/Voices, scripts, events/dialogue) to speed up first entry
 				prefetchSongAssets();
+				prewarmModsDiskCacheBackground();
 
 				var fadeTime = 0.5;
 				FlxG.camera.fade(FlxG.camera.bgColor, fadeTime, true);
 				new FlxTimer().start(fadeTime + MIN_TIME, function(_) introComplete());
 			}
 		);
+	}
+
+	function prewarmModsDiskCacheBackground():Void
+	{
+		#if sys
+		#if MODS_ALLOWED
+		try {
+			if (!FileSystem.exists('mods') || FileSystem.isDirectory('mods') == false) return;
+		} catch (_:Dynamic) {
+			return;
+		}
+
+		final maxFiles:Int = 1500;
+		final maxBytes:Int = 128 * 1024 * 1024;
+		final roots:Array<String> = [
+			'mods/stages',
+			'mods/scripts',
+			'mods/custom_events',
+			'mods/custom_notetypes',
+			'mods/data',
+			'mods/images',
+			'mods/videos',
+			'mods/sounds',
+			'mods/music',
+			'mods/songs',
+			'mods/shaders',
+			'mods/fonts',
+			'mods/characters',
+			'mods/weeks',
+			'mods'
+		];
+
+		sys.thread.Thread.create(function() {
+			var warmedFiles:Int = 0;
+			var warmedBytes:Int = 0;
+			var seen:Map<String, Bool> = new Map();
+
+			var shouldSkipDir = function(p:String):Bool {
+				if (p == null) return true;
+				var lp = p.toLowerCase();
+				return lp.indexOf('/.git') != -1 || lp.indexOf('\\.git') != -1 || lp.indexOf('/.svn') != -1 || lp.indexOf('\\.svn') != -1;
+			};
+
+			var readHead = function(filePath:String, bytes:Int):Void {
+				if (warmedFiles >= maxFiles || warmedBytes >= maxBytes) return;
+				if (filePath == null || filePath.length < 1) return;
+				if (seen.exists(filePath)) return;
+				seen.set(filePath, true);
+				try {
+					if (!FileSystem.exists(filePath) || FileSystem.isDirectory(filePath)) return;
+					var f = sys.io.File.read(filePath, true);
+					var toRead = bytes;
+					if (toRead < 1024) toRead = 1024;
+					var _ = f.read(toRead);
+					f.close();
+					warmedFiles++;
+					warmedBytes += toRead;
+				} catch (_:Dynamic) {}
+			};
+
+			var bytesForExt = function(ext:String):Int {
+				ext = (ext == null) ? '' : ext.toLowerCase();
+				switch (ext) {
+					case 'lua': return 8 * 1024;
+					case 'json', 'xml', 'txt': return 8 * 1024;
+					case 'png', 'jpg', 'jpeg', 'gif', 'webp': return 64 * 1024;
+					case 'ogg', 'mp3', 'wav': return 64 * 1024;
+					case 'mp4', 'webm', 'mov', 'avi': return 256 * 1024;
+					case 'frag', 'vert', 'glsl': return 8 * 1024;
+					default: return 0;
+				}
+			};
+
+			var walk = null;
+			walk = function(dir:String):Void {
+				if (warmedFiles >= maxFiles || warmedBytes >= maxBytes) return;
+				if (dir == null || dir.length < 1) return;
+				if (shouldSkipDir(dir)) return;
+				try {
+					if (!FileSystem.exists(dir) || !FileSystem.isDirectory(dir)) return;
+					for (name in FileSystem.readDirectory(dir)) {
+						if (warmedFiles >= maxFiles || warmedBytes >= maxBytes) return;
+						var p = dir + '/' + name;
+						try {
+							if (FileSystem.isDirectory(p)) {
+								if (!shouldSkipDir(p)) walk(p);
+							} else {
+								var ext = haxe.io.Path.extension(p);
+								var b = bytesForExt(ext);
+								if (b > 0) readHead(p, b);
+							}
+						} catch (_:Dynamic) {}
+					}
+				} catch (_:Dynamic) {}
+			};
+
+			for (r in roots) {
+				if (warmedFiles >= maxFiles || warmedBytes >= maxBytes) break;
+				walk(r);
+			}
+		});
+		#end
+		#end
 	}
 
 	function prewarmCoreGraphics():Void
@@ -108,15 +202,21 @@ class LoadingState extends MusicBeatState
 			{path: 'timeBar', library: 'shared'}
 		];
 		for (i in 0...10) toCache.push({path: 'num' + i, library: null});
-		// Optional: pixel UI prewarm
-		if (ClientPrefs.prewarmPixelAssets) {
-			toCache.push({path: 'arrows-pixels', library: null});
-			toCache.push({path: 'pixelUI', library: null});
-			for (i in 0...10) toCache.push({path: 'pixelUI/num' + i, library: null});
-		}
-		// Optional: stage-specific prewarm (best-effort)
 		if (ClientPrefs.prewarmStageAssets && PlayState.SONG != null && PlayState.SONG.stage != null && PlayState.SONG.stage.length > 0) {
-			toCache.push({path: 'stages/' + PlayState.SONG.stage, library: null});
+			var stage = PlayState.SONG.stage;
+			var lowQ = ClientPrefs.lowQuality;
+			switch (stage)
+			{
+				case 'stage':
+					toCache.push({path: 'stageback', library: null});
+					toCache.push({path: 'stagefront', library: null});
+					if (!lowQ) {
+						toCache.push({path: 'stage_light', library: null});
+						toCache.push({path: 'stagecurtains', library: null});
+					}
+				default:
+					// Unknown/custom stage: no explicit list. PlayState will load what it needs.
+			}
 		}
 		for (asset in toCache) {
 			var graphic = Paths.returnGraphic(asset.path, asset.library);
@@ -164,11 +264,222 @@ class LoadingState extends MusicBeatState
 			if (PlayState.SONG.stage != null && PlayState.SONG.stage.length > 0) {
 				var stagePath = 'mods/stages/' + PlayState.SONG.stage + '.lua';
 				if (FileSystem.exists(stagePath)) list.push(stagePath);
+				// Also check built-in stage script (assets/stages/*.lua)
+				var baseStagePath = Paths.getPreloadPath('stages/' + PlayState.SONG.stage + '.lua');
+				if (FileSystem.exists(baseStagePath)) list.push(baseStagePath);
 			}
 			list = list.concat(util.FSUtil.listFilesWithExt('mods/data/' + songName, 'lua'));
+			// Also check built-in song script dir (assets/data/<song>/*.lua)
+			list = list.concat(util.FSUtil.listFilesWithExt(Paths.getPreloadPath('data/' + songName), 'lua'));
 			if (list.length > 0) {
 				try { util.ScriptCache.preload(list); } catch (_:Dynamic) {}
 				try { util.LuaPool.prewarm(list.length); } catch (_:Dynamic) {}
+
+				// Best-effort: warm assets referenced by these scripts without executing Lua.
+				// This helps Lua-driven stages/sprites avoid first-frame disk IO + decode hitches.
+				var warmed:Map<String, Bool> = new Map();
+				var warmedCount:Int = 0;
+				var maxWarm:Int = 250;
+
+				var warmFileHead = function(path:String):Void {
+					try {
+						var f = sys.io.File.read(path, true);
+						var _ = f.read(65536);
+						f.close();
+					} catch (_:Dynamic) {}
+				};
+
+				var warmFirstExisting = function(paths:Array<String>):Bool {
+					if (paths == null) return false;
+					for (p in paths) {
+						if (p == null || p.length < 1) continue;
+						try {
+							if (FileSystem.exists(p) && !FileSystem.isDirectory(p)) {
+								warmFileHead(p);
+								return true;
+							}
+						} catch (_:Dynamic) {}
+					}
+					return false;
+				};
+
+				var normImageKey = function(k:String):String {
+					if (k == null) return null;
+					k = k.trim();
+					if (k.length < 1) return null;
+					// Strip common prefixes/extensions used by some mods
+					if (k.startsWith('assets/images/')) k = k.substr('assets/images/'.length);
+					if (k.startsWith('images/')) k = k.substr('images/'.length);
+					if (k.toLowerCase().endsWith('.png')) k = k.substr(0, k.length - 4);
+					return k;
+				};
+
+				var normSoundKey = function(k:String):String {
+					if (k == null) return null;
+					k = k.trim();
+					if (k.length < 1) return null;
+					if (k.startsWith('assets/sounds/')) k = k.substr('assets/sounds/'.length);
+					if (k.startsWith('sounds/')) k = k.substr('sounds/'.length);
+					var lower = k.toLowerCase();
+					for (ext in ['.ogg', '.mp3', '.wav']) {
+						if (lower.endsWith(ext)) {
+							k = k.substr(0, k.length - ext.length);
+							break;
+						}
+					}
+					return k;
+				};
+
+				var normMusicKey = function(k:String):String {
+					if (k == null) return null;
+					k = k.trim();
+					if (k.length < 1) return null;
+					if (k.startsWith('assets/music/')) k = k.substr('assets/music/'.length);
+					if (k.startsWith('music/')) k = k.substr('music/'.length);
+					var lower = k.toLowerCase();
+					for (ext in ['.ogg', '.mp3', '.wav']) {
+						if (lower.endsWith(ext)) {
+							k = k.substr(0, k.length - ext.length);
+							break;
+						}
+					}
+					return k;
+				};
+
+				var warmKeyOnce = function(prefix:String, raw:String, fn:String->Void) {
+					if (warmedCount >= maxWarm) return;
+					var key = raw;
+					if (key == null || key.length < 1) return;
+					var id = prefix + ':' + key;
+					if (warmed.exists(id)) return;
+					warmed.set(id, true);
+					fn(key);
+					warmedCount++;
+				};
+
+				var warmImage = function(raw:String) {
+					var k = normImageKey(raw);
+					if (k == null) return;
+					warmKeyOnce('img', k, function(imgKey:String) {
+						// Low-memory mode: only warm disk cache by reading file head.
+						if (!ClientPrefs.gpuPrecache) {
+							var candidates:Array<String> = [];
+							#if MODS_ALLOWED
+							try {
+								var mp = Paths.modFolders('images/' + imgKey + '.png');
+								if (mp != null) candidates.push(mp);
+							} catch (_:Dynamic) {}
+							#end
+							candidates.push(Paths.getPreloadPath('images/' + imgKey + '.png'));
+							candidates.push(Paths.getPreloadPath('shared/images/' + imgKey + '.png'));
+							warmFirstExisting(candidates);
+							return;
+						}
+
+						// Performance mode: decode + cache (may use more memory)
+						var graphic = Paths.returnGraphic(imgKey);
+						if (graphic != null && PlayState.gpuCahchingEnabled && FlxG.bitmap.get(graphic.key) == null) {
+							FlxG.bitmap.add(graphic);
+						}
+					});
+				};
+
+				var warmSound = function(raw:String) {
+					var k = normSoundKey(raw);
+					if (k == null) return;
+					warmKeyOnce('snd', k, function(sndKey:String) {
+						if (!ClientPrefs.gpuPrecache) {
+							var candidates:Array<String> = [];
+							#if MODS_ALLOWED
+							try {
+								var mp = Paths.modFolders('sounds/' + sndKey + '.' + Paths.SOUND_EXT);
+								if (mp != null) candidates.push(mp);
+							} catch (_:Dynamic) {}
+							#end
+							candidates.push(Paths.getPreloadPath('sounds/' + sndKey + '.' + Paths.SOUND_EXT));
+							candidates.push(Paths.getPreloadPath('shared/sounds/' + sndKey + '.' + Paths.SOUND_EXT));
+							// Also try common alt extensions, in case mod uses mp3/wav
+							for (ext in ['ogg','mp3','wav']) {
+								#if MODS_ALLOWED
+								try {
+									var mp2 = Paths.modFolders('sounds/' + sndKey + '.' + ext);
+									if (mp2 != null) candidates.push(mp2);
+								} catch (_:Dynamic) {}
+								#end
+								candidates.push(Paths.getPreloadPath('sounds/' + sndKey + '.' + ext));
+								candidates.push(Paths.getPreloadPath('shared/sounds/' + sndKey + '.' + ext));
+							}
+							warmFirstExisting(candidates);
+							return;
+						}
+						Paths.sound(sndKey);
+					});
+				};
+
+				var warmMusic = function(raw:String) {
+					var k = normMusicKey(raw);
+					if (k == null) return;
+					warmKeyOnce('msc', k, function(mscKey:String) {
+						if (!ClientPrefs.gpuPrecache) {
+							var candidates:Array<String> = [];
+							#if MODS_ALLOWED
+							try {
+								var mp = Paths.modFolders('music/' + mscKey + '.' + Paths.SOUND_EXT);
+								if (mp != null) candidates.push(mp);
+							} catch (_:Dynamic) {}
+							#end
+							candidates.push(Paths.getPreloadPath('music/' + mscKey + '.' + Paths.SOUND_EXT));
+							candidates.push(Paths.getPreloadPath('shared/music/' + mscKey + '.' + Paths.SOUND_EXT));
+							for (ext in ['ogg','mp3','wav']) {
+								#if MODS_ALLOWED
+								try {
+									var mp2 = Paths.modFolders('music/' + mscKey + '.' + ext);
+									if (mp2 != null) candidates.push(mp2);
+								} catch (_:Dynamic) {}
+								#end
+								candidates.push(Paths.getPreloadPath('music/' + mscKey + '.' + ext));
+								candidates.push(Paths.getPreloadPath('shared/music/' + mscKey + '.' + ext));
+							}
+							warmFirstExisting(candidates);
+							return;
+						}
+						Paths.music(mscKey);
+					});
+				};
+
+				var scan = function(re:EReg, s:String, cb:String->Void) {
+					var pos = 0;
+					while (warmedCount < maxWarm && s != null && re.matchSub(s, pos)) {
+						var m = re.matched(1);
+						if (m != null && m.length > 0) cb(m);
+						var mp = re.matchedPos();
+						pos = mp.pos + mp.len;
+					}
+				};
+
+				var rePreImg:EReg = ~/precacheImage\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/;
+				var rePreSnd:EReg = ~/precacheSound\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/;
+				var rePreMsc:EReg = ~/precacheMusic\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/;
+				var reMakeSpr:EReg = ~/makeLuaSprite\\s*\\(\\s*['"][^'"]+['"]\\s*,\\s*['"]([^'"]+)['"]/;
+				var reMakeAnim:EReg = ~/makeAnimatedLuaSprite\\s*\\(\\s*['"][^'"]+['"]\\s*,\\s*['"]([^'"]+)['"]/;
+				var reLoadFrames:EReg = ~/loadFrames\\s*\\(\\s*[^,]+,\\s*['"]([^'"]+)['"]/;
+
+				for (p in list)
+				{
+					var txt:String = null;
+					try {
+						txt = util.ScriptCache.get(p);
+						if (txt == null) txt = File.getContent(p);
+					} catch (_:Dynamic) {}
+					if (txt == null || txt.length < 1) continue;
+					scan(rePreImg, txt, warmImage);
+					scan(reMakeSpr, txt, warmImage);
+					scan(reMakeAnim, txt, warmImage);
+					scan(reLoadFrames, txt, warmImage);
+					scan(rePreSnd, txt, warmSound);
+					scan(rePreMsc, txt, warmMusic);
+					if (warmedCount >= maxWarm) break;
+				}
 			}
 			#end
 		});

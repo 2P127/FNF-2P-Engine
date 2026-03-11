@@ -597,7 +597,8 @@ class Paths
 			if(!currentTrackedSounds.exists(file)) {
 				currentTrackedSounds.set(file, Sound.fromFile(file));
 			}
-			localTrackedAssets.push(key);
+			// Track by resolved file path so clearUnusedMemory/clearStoredMemory won't immediately evict it.
+			localTrackedAssets.push(file);
 			return currentTrackedSounds.get(file);
 		}
 		#end
