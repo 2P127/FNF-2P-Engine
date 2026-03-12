@@ -26,10 +26,29 @@ typedef StageFile = {
 	var camera_opponent:Array<Float>;
 	var camera_girlfriend:Array<Float>;
 	var camera_speed:Null<Float>;
+	@:optional var preload:Dynamic;
+}
+
+enum abstract LoadFilters(Int) from Int from UInt to Int to UInt
+{
+	var LOW_QUALITY:Int = (1 << 0);
+	var HIGH_QUALITY:Int = (1 << 1);
+
+	var STORY_MODE:Int = (1 << 2);
+	var FREEPLAY:Int = (1 << 3);
 }
 
 class StageData {
 	public static var forceNextDirectory:String = null;
+	public static function validateVisibility(filters:Int):Bool {
+		if (filters < 0) return true;
+		if ((filters & LOW_QUALITY) != 0 && ClientPrefs.lowQuality) return true;
+		if ((filters & HIGH_QUALITY) != 0 && !ClientPrefs.lowQuality) return true;
+		if ((filters & STORY_MODE) != 0 && PlayState.isStoryMode) return true;
+		if ((filters & FREEPLAY) != 0 && !PlayState.isStoryMode) return true;
+		return false;
+	}
+
 	public static function loadDirectory(SONG:SwagSong) {
 		var stage:String = '';
 		if(SONG.stage != null) {

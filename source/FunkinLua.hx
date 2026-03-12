@@ -1559,7 +1559,7 @@ class FunkinLua {
 			}
 			PlayState.instance.addCharacterToList(name, charType);
 		});
-		Lua_helper.add_callback(lua, "precacheImage", function(name:String) {
+		Lua_helper.add_callback(lua, "precacheImage", function(name:String, ?allowGPU:Bool = true) {
 			Paths.returnGraphic(name);
 		});
 		Lua_helper.add_callback(lua, "precacheSound", function(name:String) {

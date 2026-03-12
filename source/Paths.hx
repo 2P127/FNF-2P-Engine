@@ -560,6 +560,26 @@ class Paths
 
 	// completely rewritten asset loading? fuck!
 	public static var currentTrackedAssets:Map<String, FlxGraphic> = [];
+	public static function cachePreparedGraphicFile(resolvedPath:String, bitmap:BitmapData):FlxGraphic {
+		if (resolvedPath == null || bitmap == null) return null;
+		var existing = currentTrackedAssets.get(resolvedPath);
+		if (existing != null && existing.bitmap == null) {
+			@:privateAccess FlxG.bitmap._cache.remove(resolvedPath);
+			currentTrackedAssets.remove(resolvedPath);
+			existing = null;
+		}
+		if (existing == null) {
+			if (ClientPrefs.cacheOnGPU) cacheBitmapToGPU(bitmap);
+			var graphic:FlxGraphic = FlxGraphic.fromBitmapData(bitmap, false, resolvedPath);
+			graphic.persist = _persistGraphics;
+			graphic.destroyOnNoUse = false;
+			currentTrackedAssets.set(resolvedPath, graphic);
+			existing = graphic;
+		}
+		localTrackedAssets.push(resolvedPath);
+		return existing;
+	}
+
 	public static function returnGraphic(key:String, ?library:String) {
 		#if MODS_ALLOWED
 		var modKey:String = modsImages(key);
@@ -607,6 +627,15 @@ class Paths
 	}
 
 	public static var currentTrackedSounds:Map<String, Sound> = [];
+	public static function cachePreparedSoundFile(resolvedPath:String, sound:Sound):Sound {
+		if (resolvedPath == null || sound == null) return null;
+		if (!currentTrackedSounds.exists(resolvedPath)) {
+			currentTrackedSounds.set(resolvedPath, sound);
+		}
+		localTrackedAssets.push(resolvedPath);
+		return currentTrackedSounds.get(resolvedPath);
+	}
+
 	public static function returnSound(path:String, key:String, ?library:String) {
 		#if MODS_ALLOWED
 		var file:String = modsSounds(path, key);
