@@ -25,6 +25,7 @@ import flash.media.Sound;
 
 using StringTools;
 
+@:access(openfl.display.BitmapData)
 class Paths
 {
 	inline public static var SOUND_EXT = #if web "mp3" #else "ogg" #end;
@@ -94,7 +95,7 @@ class Paths
 			if (obj != null && !currentTrackedAssets.exists(key)) {
 				openfl.Assets.cache.removeBitmapData(key);
 				FlxG.bitmap._cache.remove(key);
-				obj.destroy();
+				destroyGraphic(obj);
 			}
 		}
 
@@ -563,10 +564,18 @@ class Paths
 		#if MODS_ALLOWED
 		var modKey:String = modsImages(key);
 		if(sysExists(modKey)) {
+			// If state switch cleared the bitmap (persist=false), drop the dead reference and reload
+			var existing = currentTrackedAssets.get(modKey);
+			if (existing != null && existing.bitmap == null) {
+				@:privateAccess FlxG.bitmap._cache.remove(modKey);
+				currentTrackedAssets.remove(modKey);
+			}
 			if(!currentTrackedAssets.exists(modKey)) {
 				var newBitmap:BitmapData = BitmapData.fromFile(modKey);
+				if (ClientPrefs.cacheOnGPU) cacheBitmapToGPU(newBitmap);
 				var newGraphic:FlxGraphic = FlxGraphic.fromBitmapData(newBitmap, false, modKey);
 				newGraphic.persist = _persistGraphics;
+				newGraphic.destroyOnNoUse = false;
 				currentTrackedAssets.set(modKey, newGraphic);
 			}
 			localTrackedAssets.push(modKey);
@@ -577,9 +586,17 @@ class Paths
 		var path = getPath('images/$key.png', IMAGE, library);
 		//trace(path);
 		if (OpenFlAssets.exists(path, IMAGE)) {
+			// If state switch cleared the bitmap (persist=false), drop the dead reference and reload
+			var existing = currentTrackedAssets.get(path);
+			if (existing != null && existing.bitmap == null) {
+				@:privateAccess FlxG.bitmap._cache.remove(path);
+				currentTrackedAssets.remove(path);
+			}
 			if(!currentTrackedAssets.exists(path)) {
 				var newGraphic:FlxGraphic = FlxG.bitmap.add(path, false, path);
 				newGraphic.persist = _persistGraphics;
+				newGraphic.destroyOnNoUse = false;
+				if (ClientPrefs.cacheOnGPU && newGraphic.bitmap != null) cacheBitmapToGPU(newGraphic.bitmap);
 				currentTrackedAssets.set(path, newGraphic);
 			}
 			localTrackedAssets.push(path);
@@ -626,6 +643,43 @@ class Paths
 		public static function setPersistGraphics(persist:Bool):Void {
 			_persistGraphics = persist;
 			// Already-cached graphics keep their flags; new loads will respect this.
+		}
+
+		// Uploads a BitmapData to GPU texture and frees CPU-side image data (saves RAM).
+		// Requires @:access(openfl.display.BitmapData) on the class.
+		static function cacheBitmapToGPU(bitmap:BitmapData):Void {
+			#if !html5
+			try {
+				if (bitmap == null || bitmap.image == null) return;
+				var ctx = FlxG.stage.context3D;
+				if (ctx == null) return;
+				bitmap.lock();
+				if (bitmap.__texture == null) {
+					bitmap.image.premultiplied = true;
+					bitmap.getTexture(ctx);
+				}
+				bitmap.getSurface();
+				bitmap.disposeImage();
+				bitmap.image = null;
+				bitmap.readable = true;
+			} catch (e:Dynamic) {
+				trace('cacheBitmapToGPU failed: ' + e);
+			}
+			#end
+		}
+
+		// Safely destroys a FlxGraphic, also disposing its GPU texture if present.
+		static function destroyGraphic(graphic:FlxGraphic):Void {
+			if (graphic == null) return;
+			#if !html5
+			try {
+				if (graphic.bitmap != null && graphic.bitmap.__texture != null) {
+					graphic.bitmap.__texture.dispose();
+					graphic.bitmap.__texture = null;
+				}
+			} catch (_:Dynamic) {}
+			#end
+			try { graphic.destroy(); } catch (_:Dynamic) {}
 		}
 
 	#if MODS_ALLOWED

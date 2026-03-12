@@ -70,6 +70,13 @@ class GameplaySettingsSubState extends BaseOptionsMenu
 			true);
 		addOption(option);
 
+		var option:Option = new Option('Sustains as One Note',
+			"If checked, Hold Notes can't be pressed after missing the head note.\nSustain tails won't give extra health, and missing the head counts the whole sustain as one note.",
+			'guitarHeroSustains',
+			'bool',
+			true);
+		addOption(option);
+
 		var option:Option = new Option('Disable Reset Button',
 			"If checked, pressing Reset won't do anything.",
 			'noReset',

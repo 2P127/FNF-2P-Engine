@@ -126,6 +126,16 @@ class StoryMenuState extends MusicBeatState
 			}
 		}
 
+		if (loadedWeeks.length < 1)
+		{
+			MusicBeatState.switchState(new ErrorState(
+				"NO WEEKS ADDED FOR STORY MODE\n\nPress ACCEPT to go to the Week Editor.\nPress BACK to return to Main Menu.",
+				function() MusicBeatState.switchState(new editors.WeekEditorState()),
+				function() MusicBeatState.switchState(new MainMenuState())
+			));
+			return;
+		}
+
 		WeekData.setDirectoryFromWeek(loadedWeeks[0]);
 		var charArray:Array<String> = loadedWeeks[0].weekCharacters;
 		for (char in 0...3)
@@ -318,7 +328,16 @@ class StoryMenuState extends MusicBeatState
 
 			PlayState.storyDifficulty = curDifficulty;
 
-			PlayState.SONG = Song.loadFromJson(PlayState.storyPlaylist[0].toLowerCase() + diffic, PlayState.storyPlaylist[0].toLowerCase());
+			try {
+				PlayState.SONG = Song.loadFromJson(PlayState.storyPlaylist[0].toLowerCase() + diffic, PlayState.storyPlaylist[0].toLowerCase());
+			} catch (e:Dynamic) {
+				MusicBeatState.switchState(new ErrorState(
+					'FAILED TO LOAD STORY SONG\n\n' + Std.string(e) + '\n\nPress ACCEPT to go to the Week Editor.\nPress BACK to return to Story Menu.',
+					function() MusicBeatState.switchState(new editors.WeekEditorState()),
+					function() MusicBeatState.switchState(new StoryMenuState())
+				));
+				return;
+			}
 			PlayState.campaignScore = 0;
 			PlayState.campaignMisses = 0;
 			new FlxTimer().start(1, function(tmr:FlxTimer)

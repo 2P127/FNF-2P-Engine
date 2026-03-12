@@ -90,6 +90,16 @@ class FreeplayState extends MusicBeatState
 		}
 		WeekData.loadTheFirstEnabledMod();
 
+		if (songs.length < 1)
+		{
+			MusicBeatState.switchState(new ErrorState(
+				"NO SONGS ADDED FOR FREEPLAY\n\nPress ACCEPT to go to the Week Editor.\nPress BACK to return to Main Menu.",
+				function() MusicBeatState.switchState(new editors.WeekEditorState()),
+				function() MusicBeatState.switchState(new MainMenuState())
+			));
+			return;
+		}
+
 		/*		//KIND OF BROKEN NOW AND ALSO PRETTY USELESS//
 
 		var initSonglist = CoolUtil.coolTextFile(Paths.txt('freeplaySonglist'));
@@ -331,23 +341,32 @@ class FreeplayState extends MusicBeatState
 			if(instPlaying != curSelected)
 			{
 				#if PRELOAD_ALL
-				destroyFreeplayVocals();
-				FlxG.sound.music.volume = 0;
-				Paths.currentModDirectory = songs[curSelected].folder;
-				var poop:String = Highscore.formatSong(songs[curSelected].songName.toLowerCase(), curDifficulty);
-				PlayState.SONG = Song.loadFromJson(poop, songs[curSelected].songName.toLowerCase());
-				if (PlayState.SONG.needsVoices)
-					vocals = new FlxSound().loadEmbedded(Paths.voices(PlayState.SONG.song));
-				else
-					vocals = new FlxSound();
+				try {
+					destroyFreeplayVocals();
+					FlxG.sound.music.volume = 0;
+					Paths.currentModDirectory = songs[curSelected].folder;
+					var poop:String = Highscore.formatSong(songs[curSelected].songName.toLowerCase(), curDifficulty);
+					PlayState.SONG = Song.loadFromJson(poop, songs[curSelected].songName.toLowerCase());
+					if (PlayState.SONG.needsVoices)
+						vocals = new FlxSound().loadEmbedded(Paths.voices(PlayState.SONG.song));
+					else
+						vocals = new FlxSound();
 
-				FlxG.sound.list.add(vocals);
-				FlxG.sound.playMusic(Paths.inst(PlayState.SONG.song), 0.7);
-				vocals.play();
-				vocals.persist = true;
-				vocals.looped = true;
-				vocals.volume = 0.7;
-				instPlaying = curSelected;
+					FlxG.sound.list.add(vocals);
+					FlxG.sound.playMusic(Paths.inst(PlayState.SONG.song), 0.7);
+					vocals.play();
+					vocals.persist = true;
+					vocals.looped = true;
+					vocals.volume = 0.7;
+					instPlaying = curSelected;
+				} catch (e:Dynamic) {
+					MusicBeatState.switchState(new ErrorState(
+						'FAILED TO PREVIEW SONG\n\n' + Std.string(e) + '\n\nPress ACCEPT to go to the Week Editor.\nPress BACK to return to Freeplay.',
+						function() MusicBeatState.switchState(new editors.WeekEditorState()),
+						function() MusicBeatState.switchState(new FreeplayState())
+					));
+					return;
+				}
 				#end
 			}
 		}
@@ -368,7 +387,16 @@ class FreeplayState extends MusicBeatState
 			}*/
 			trace(poop);
 
-			PlayState.SONG = Song.loadFromJson(poop, songLowercase);
+			try {
+				PlayState.SONG = Song.loadFromJson(poop, songLowercase);
+			} catch (e:Dynamic) {
+				MusicBeatState.switchState(new ErrorState(
+					'FAILED TO LOAD SONG\n\n' + Std.string(e) + '\n\nPress ACCEPT to go to the Week Editor.\nPress BACK to return to Freeplay.',
+					function() MusicBeatState.switchState(new editors.WeekEditorState()),
+					function() MusicBeatState.switchState(new FreeplayState())
+				));
+				return;
+			}
 			PlayState.isStoryMode = false;
 			PlayState.storyDifficulty = curDifficulty;
 

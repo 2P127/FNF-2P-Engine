@@ -42,6 +42,8 @@ class ClientPrefs
 	public static var modsDirCache:Bool = true;
 	// Keep frequently used graphics persisted in GPU/bitmap cache for faster renders
 	public static var gpuPrecache:Bool = true;
+	// Upload bitmaps to GPU texture memory and dispose CPU-side image data (saves RAM, costs VRAM)
+	public static var cacheOnGPU:Bool = false;
 	// Wait for Inst/Voices to be preloaded before finishing LoadingState
 	public static var waitAudioPreload:Bool = true;
 	// Expand GPU prewarm to include pixel UI assets
@@ -72,6 +74,7 @@ class ClientPrefs
 	public static var comboCamSet:String = 'camHUD'; // custom
 	public static var pauseStatePreferDebug = false;
 	public static var noteHoldSplashes:Bool = true;
+	public static var guitarHeroSustains:Bool = true;
 	public static var gameplaySettings:Map<String, Dynamic> = [
 		'scrollspeed' => 1.0,
 		'scrolltype' => 'multiplicative',
@@ -151,6 +154,7 @@ class ClientPrefs
 		FlxG.save.data.textCacheKB = textCacheKB;
 		FlxG.save.data.modsDirCache = modsDirCache;
 		FlxG.save.data.gpuPrecache = gpuPrecache;
+		FlxG.save.data.cacheOnGPU = cacheOnGPU;
 		FlxG.save.data.waitAudioPreload = waitAudioPreload;
 		FlxG.save.data.prewarmPixelAssets = prewarmPixelAssets;
 		FlxG.save.data.prewarmStageAssets = prewarmStageAssets;
@@ -186,6 +190,7 @@ class ClientPrefs
 		FlxG.save.data.comboCamSet = comboCamSet;
 		FlxG.save.data.pauseStatePreferDebug = pauseStatePreferDebug;
 		FlxG.save.data.noteHoldSplashes = noteHoldSplashes;
+		FlxG.save.data.guitarHeroSustains = guitarHeroSustains;
 
 		FlxG.save.flush();
 
@@ -201,6 +206,10 @@ class ClientPrefs
 		if (FlxG.save.data.noteHoldSplashes != null)
 		{
 			noteHoldSplashes = FlxG.save.data.noteHoldSplashes;
+		}
+		if (FlxG.save.data.guitarHeroSustains != null)
+		{
+			guitarHeroSustains = FlxG.save.data.guitarHeroSustains;
 		}
 		if (FlxG.save.data.pauseStatePreferDebug != null)
 		{
@@ -285,6 +294,10 @@ class ClientPrefs
 		if (FlxG.save.data.gpuPrecache != null)
 		{
 			gpuPrecache = FlxG.save.data.gpuPrecache;
+		}
+		if (FlxG.save.data.cacheOnGPU != null)
+		{
+			cacheOnGPU = FlxG.save.data.cacheOnGPU;
 		}
 		if (FlxG.save.data.waitAudioPreload != null)
 		{
@@ -540,7 +553,9 @@ class ClientPrefs
 		// Configure text and directory caches used by Paths utilities
 		Paths.setTextCacheMaxKB(textCacheKB);
 		Paths.setDirCacheEnabled(modsDirCache);
-		Paths.setPersistGraphics(gpuPrecache);
+		// Graphics must always persist across state switches to prevent null-bitmap crashes.
+		// gpuPrecache is kept as a variable for compatibility but is never exposed as a user option.
+		Paths.setPersistGraphics(true);
 
 		// Initialize thread pool according to preference (no-op on targets without threads)
 		#if sys

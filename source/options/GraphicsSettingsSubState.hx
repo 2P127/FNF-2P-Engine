@@ -64,6 +64,13 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 			true); //Default value
 		addOption(option);
 
+		var optCacheOnGPU:Option = new Option('GPU Caching',
+			'Uploads textures to GPU VRAM and frees CPU RAM. Saves memory at the cost of VRAM.\nTakes effect on newly loaded images.',
+			'cacheOnGPU',
+			'bool',
+			false);
+		addOption(optCacheOnGPU);
+
 		#if !html5 //Apparently other framerates isn't correctly supported on Browser? Probably it has some V-Sync shit enabled by default, idk
 		autoFpsOption = new Option('Auto Framerate',
 			'Keeps FPS synced to your monitor refresh rate (recommended).',
@@ -84,14 +91,10 @@ class GraphicsSettingsSubState extends BaseOptionsMenu
 		addOption(framerateOption);
 
 		framerateOption.minValue = 60;
-		framerateOption.maxValue = 240;
+		framerateOption.maxValue = 360;
 		framerateOption.displayFormat = _framerateDisplayFormat;
 		framerateOption.onChange = onChangeFramerate;
 		#end
-
-		var option:Option = new Option('Use FlxAnimate (Experimental)',
-			'Use FlxAnimate for Animate CC atlases when available. Requires library; may increase compatibility and reduce memory.','useFlxAnimate','bool',false);
-		addOption(option);
 
 		super();
 		#if !html5

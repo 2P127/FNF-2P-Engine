@@ -53,15 +53,17 @@ class Cache extends MusicBeatState
 		FlxG.save.bind('funkin', 'haryulovescat');
 		ClientPrefs.loadPrefs();
 
+		// Always initialize maps to prevent null-access crashes even when preloading is skipped
+		bitmapData = new Map<String,FlxGraphic>();
+		bitmapData2 = new Map<String,FlxGraphic>();
+
 		// If boot-time preload is disabled, hand off immediately to TitleState
 		if (!ClientPrefs.bootPreloadAtBoot)
 		{
+			super.create();
 			MusicBeatState.switchState(new TitleState());
 			return;
 		}
-
-		bitmapData = new Map<String,FlxGraphic>();
-		bitmapData2 = new Map<String,FlxGraphic>();
 
 		var menuBG:FlxSprite = new FlxSprite().loadGraphic(Paths.image('loadingBG'));
 		menuBG.screenCenter();

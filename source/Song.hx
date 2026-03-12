@@ -101,16 +101,33 @@ class Song
 		
 		var formattedFolder:String = Paths.formatToSongPath(folder);
 		var formattedSong:String = Paths.formatToSongPath(jsonInput);
-		#if MODS_ALLOWED
-		var moddyFile:String = Paths.modsJson(formattedFolder + '/' + formattedSong);
-		if(FileSystem.exists(moddyFile)) {
-			rawJson = File.getContent(moddyFile).trim();
+		var chartCandidates:Array<String> = [formattedSong];
+		if (formattedFolder != null && formattedFolder.length > 0 && formattedSong != formattedFolder)
+		{
+			chartCandidates.push(formattedFolder);
 		}
-		#end
+
+		for (chartName in chartCandidates)
+		{
+			#if MODS_ALLOWED
+			var moddyFile:String = Paths.modsJson(formattedFolder + '/' + chartName);
+			if(FileSystem.exists(moddyFile)) {
+				rawJson = File.getContent(moddyFile).trim();
+				formattedSong = chartName;
+				break;
+			}
+			#end
+
+			try {
+				// Use Paths.getTextFromFile for caching and mod-aware resolution
+				rawJson = Paths.getTextFromFile('data/' + formattedFolder + '/' + chartName + '.json').trim();
+				formattedSong = chartName;
+				break;
+			} catch (_:Dynamic) {}
+		}
 
 		if(rawJson == null) {
-			// Use Paths.getTextFromFile for caching and mod-aware resolution
-			rawJson = Paths.getTextFromFile('data/' + formattedFolder + '/' + formattedSong + '.json').trim();
+			throw 'Missing chart JSON for song "' + formattedFolder + '". Tried: ' + chartCandidates.join(', ');
 		}
 
 		while (!rawJson.endsWith("}"))

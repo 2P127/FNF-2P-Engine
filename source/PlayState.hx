@@ -244,6 +244,7 @@ class PlayState extends MusicBeatState
 	public var instakillOnMiss:Bool = false;
 	public var cpuControlled:Bool = false;
 	public var practiceMode:Bool = false;
+	public var guitarHeroSustains:Bool = false;
 
 	public var botplaySine:Float = 0;
 	public var botplayTxt:FlxText;
@@ -428,6 +429,7 @@ class PlayState extends MusicBeatState
 		instakillOnMiss = ClientPrefs.getGameplaySetting('instakill', false);
 		practiceMode = ClientPrefs.getGameplaySetting('practice', false);
 		cpuControlled = ClientPrefs.getGameplaySetting('botplay', false);
+		guitarHeroSustains = ClientPrefs.guitarHeroSustains;
 
 		// var gameCam:FlxCamera = FlxG.camera;
 		camGame = new FlxCamera();
@@ -1912,7 +1914,15 @@ class PlayState extends MusicBeatState
 			// If it was precached, it may still live inside the precache group. Remove it there to avoid double-updating/drawing.
 			if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
 			// Avoid adding the same instance multiple times.
-			if (this.members.indexOf(videoSprite) == -1) add(videoSprite);
+			// Insert behind notes/strums so the video renders underneath them on the same camera.
+			if (this.members.indexOf(videoSprite) == -1) {
+				var insertBefore:flixel.FlxBasic = (strumLineNotes != null) ? strumLineNotes : null;
+				var insertIdx:Int = (insertBefore != null) ? members.indexOf(insertBefore) : -1;
+				if (insertIdx >= 0)
+					insert(insertIdx, videoSprite);
+				else
+					add(videoSprite);
+			}
 
 			// Apply desired volume if any
 			if (videoDesiredVolume.exists(tag)) {
@@ -3373,10 +3383,16 @@ class PlayState extends MusicBeatState
 
 		if (videoSprite != null) {
 			videoSprite.onEndReached = null;
-			try { videoSprite.stop(); } catch(e:Dynamic) {}
-			if (videoPrecacheGroup != null) videoPrecacheGroup.remove(videoSprite, true);
-			remove(videoSprite, true);
-			try { videoSprite.destroy(); } catch(e:Dynamic) {}
+			// Pause first so decoder threads finish their current frame before we hard-stop.
+			// Calling stop() immediately while threads are mid-decode causes h264 buffer errors.
+			try { videoSprite.pause(); } catch(e:Dynamic) {}
+			var capturedSprite = videoSprite;
+			new FlxTimer().start(0.05, function(_) {
+				try { capturedSprite.stop(); } catch(e:Dynamic) {}
+				if (videoPrecacheGroup != null) videoPrecacheGroup.remove(capturedSprite, true);
+				remove(capturedSprite, true);
+				try { capturedSprite.destroy(); } catch(e:Dynamic) {}
+			});
 		}
 
 		if (removeFromMaps) {
@@ -3931,7 +3947,7 @@ class PlayState extends MusicBeatState
 
 					if(!daNote.blockHit && daNote.mustPress && cpuControlled && daNote.canBeHit) {
 						if(daNote.isSustainNote) {
-							if(daNote.canBeHit) {
+							if(daNote.canBeHit && (!guitarHeroSustains || (daNote.parent != null && daNote.parent.wasGoodHit))) {
 								goodNoteHit(daNote);
 							}
 						} else if(daNote.strumTime <= Conductor.songPosition || daNote.isSustainNote) {
@@ -5183,8 +5199,12 @@ class PlayState extends MusicBeatState
 			notes.forEachAlive(function(daNote:Note)
 			{
 				// hold note functions
-				if (strumsBlocked[daNote.noteData] != true && daNote.isSustainNote && parsedHoldArray[daNote.noteData] && daNote.canBeHit
-				&& daNote.mustPress && !daNote.tooLate && !daNote.wasGoodHit && !daNote.blockHit) {
+				var canHitSustain:Bool = strumsBlocked[daNote.noteData] != true && daNote.isSustainNote && parsedHoldArray[daNote.noteData] && daNote.canBeHit
+				&& daNote.mustPress && !daNote.tooLate && !daNote.wasGoodHit && !daNote.blockHit;
+				if (guitarHeroSustains && canHitSustain) {
+					canHitSustain = daNote.parent != null && daNote.parent.wasGoodHit;
+				}
+				if (canHitSustain) {
 					goodNoteHit(daNote);
 				}
 			});
@@ -5232,6 +5252,11 @@ class PlayState extends MusicBeatState
 	function noteMiss(daNote:Note):Void { 
 		holdSplashEffect.forceHideSplash(daNote.noteData, false);
 
+		if (guitarHeroSustains && daNote.isSustainNote && daNote.parent != null)
+		{
+			return;
+		}
+
 		notes.forEachAlive(function(note:Note) {
 			if (daNote != note && daNote.mustPress && daNote.noteData == note.noteData && daNote.isSustainNote == note.isSustainNote && Math.abs(daNote.strumTime - note.strumTime) < 1) {
 				note.kill();
@@ -5240,7 +5265,20 @@ class PlayState extends MusicBeatState
 			}
 		});
 		combo = 0;
-		health -= daNote.missHealth * healthLoss;
+		var missHealthToApply:Float = daNote.missHealth;
+		if (guitarHeroSustains && !daNote.isSustainNote && daNote.tail != null && daNote.tail.length > 0)
+		{
+			for (childNote in daNote.tail)
+			{
+				if (childNote == null) continue;
+				childNote.canBeHit = false;
+				childNote.tooLate = true;
+				childNote.ignoreNote = true;
+				childNote.blockHit = true;
+				missHealthToApply += childNote.missHealth;
+			}
+		}
+		health -= missHealthToApply * healthLoss;
 		
 		if(instakillOnMiss)
 		{
@@ -5427,7 +5465,10 @@ class PlayState extends MusicBeatState
 					if(combo > 9999) combo = 9999;
 					popUpScore(note);
 				}
-				health += note.hitHealth * healthGain;
+				if (!(guitarHeroSustains && note.isSustainNote))
+				{
+					health += note.hitHealth * healthGain;
+				}
 		
 				if(!note.noAnimation) {
 					var animToPlay:String = singAnimations[Std.int(Math.abs(note.noteData))];
